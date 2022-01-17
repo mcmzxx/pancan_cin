@@ -1,0 +1,46 @@
+rm(list=ls())
+library(ggplot2)
+library(ggsignif)
+library(plyr)
+library(ggrepel)
+library(cowplot)
+library(data.table)
+setwd("/data/zhang/pancan_cin/step9_driver_interaction/")
+load('../step1_calculate_cin/data/pan_can_cin_score.RData')
+Final_table=scores[scores$sample_type_detail %in% c('Primary Blood Derived Cancer','Primary Solid Tumor'),]
+Final_table$Sample <- substr(Final_table$Sample, 1, 15)
+rownames(Final_table)=Final_table$Sample
+Mut_table <- fread("data/data_CNA.oncokb.txt")
+Mut_table=subset(Mut_table,Mut_table$ALTERATION=='Amplification',)
+Mut_table$Sample=substr(Mut_table$SAMPLE_ID,1,15)
+Results <- data.frame()
+unigene=unique(Mut_table$HUGO_SYMBOL)
+for(i in 1:length(unigene)){
+  gene <-unigene[i]
+  # at least 20 samples per group
+  print(i)
+  sampleif=Mut_table$Sample[Mut_table$HUGO_SYMBOL %in% gene]
+  gmut=which(Final_table$Sample %in% sampleif)
+  gwt=which(!Final_table$Sample %in% sampleif)
+  if(length(gmut) >=20 & length(gwt) >=20){
+    
+    Final_table$Mutation_selected <- factor(Final_table$Sample %in% sampleif,labels = c('wt','mut'))
+    
+    fit <- lm(scin ~ Mutation_selected + Cohort, Final_table)
+    tmpcoef=summary(fit)$coefficients
+    pvalue = tmpcoef[2,4]  
+    # delta mean
+    coef = tmpcoef[2,1]
+    
+    wt <- mean(Final_table$scin[gwt])
+    mut <- mean(Final_table$scin[gmut])
+    
+    WT_samples <- length(gwt)
+    MUT_samples <- length(gmut)
+    Results=rbind(Results, data.frame(gene, coef, pvalue, wt, mut, mut-wt, WT_samples, MUT_samples))
+  }
+}
+Results$FDR <- p.adjust(Results$pvalue, method = "fdr")
+Results <- Results[order(Results$pvalue),c(1:3,9,4:8)]
+names(Results) <- c("Gene", "Coef", "Pvalue", "FDR", "WTmean", "MUTmean", "MUTminusWT_diff", "WT_samples", "MUT_samples")
+write.table(Results, "table/allsamples_scin_allAmplifications_linear_model_results.txt", quote=F, sep="\t", row.names = F)
